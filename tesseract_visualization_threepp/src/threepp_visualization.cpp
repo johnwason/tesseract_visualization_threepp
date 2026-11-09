@@ -71,6 +71,10 @@ public:
     z_up_->rotateX(-PI_2);
     scene_->add(z_up_);
 
+    // The grid is flat in threepp's Y up frame, so it goes in the scene rather than under z_up_
+    if (options.ground_grid)
+      scene_->add(tp::GridHelper::create(10, 20, 0x888888, 0x444444));
+
     camera_ = tp::PerspectiveCamera::create(45, static_cast<float>(options.width) / static_cast<float>(options.height), 0.1F, 1000);
     camera_->position.set(3, 3, -1.5F);
     camera_->lookAt(0, 0, 0);

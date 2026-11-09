@@ -48,5 +48,5 @@ A window has orbit controls and plays trajectories in a loop. Headless, use `Thr
 - Headless is Linux only, as it uses EGL. It uses a GPU if there is one and otherwise renders in software.
 - macOS cannot open a window, as GLFW needs the main thread there and this viewer renders on its own thread.
 - Wayland needs XWayland, as threepp builds GLFW without Wayland support.
-- Lines are one pixel wide, marker labels are not drawn, and there is no ground grid.
+- Lines are one pixel wide, and marker labels are not drawn.
 - Only tested on Linux so far.
