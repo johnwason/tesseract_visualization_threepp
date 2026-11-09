@@ -49,4 +49,4 @@ A window has orbit controls and plays trajectories in a loop. Headless, use `Thr
 - macOS cannot open a window, as GLFW needs the main thread there and this viewer renders on its own thread.
 - Wayland needs XWayland, as threepp builds GLFW without Wayland support.
 - Lines are one pixel wide, and marker labels are not drawn.
-- Only tested on Linux so far.
+- Rendering has only been tested on Linux. CI builds on macOS and Windows and runs the conversion tests there.

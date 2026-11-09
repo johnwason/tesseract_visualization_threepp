@@ -49,8 +49,8 @@ int main(int argc, char** argv)
   {
     const double phase = static_cast<double>(i) / 40.0;
     Eigen::VectorXd position = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(ids.size()));
-    position[0] = std::sin(2.0 * M_PI * phase);
-    position[1] = 0.5 * std::sin(M_PI * phase);
+    position[0] = std::sin(2.0 * EIGEN_PI * phase);
+    position[1] = 0.5 * std::sin(EIGEN_PI * phase);
     tesseract::common::JointState state(ids, position);
     state.time = phase * 4.0;
     trajectory.push_back(state);

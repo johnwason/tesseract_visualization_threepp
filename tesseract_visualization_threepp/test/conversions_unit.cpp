@@ -2,10 +2,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <threepp/threepp.hpp>
 

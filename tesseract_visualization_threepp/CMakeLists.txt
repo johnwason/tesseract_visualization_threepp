@@ -10,6 +10,11 @@ find_package(threepp CONFIG REQUIRED)
 if(NOT DEFINED BUILD_SHARED_LIBS)
   set(BUILD_SHARED_LIBS ON)
 endif()
+if(WIN32)
+  set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+  add_compile_definitions(NOMINMAX)
+  add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+endif()
 
 option(TESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING "Build the unit tests" OFF)
 
@@ -53,9 +58,12 @@ if(TESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING)
   add_test(NAME tesseract_visualization_threepp_conversions_unit COMMAND tesseract_visualization_threepp_conversions_unit)
   set_tests_properties(tesseract_visualization_threepp_conversions_unit PROPERTIES ENVIRONMENT "TESSERACT_RESOURCE_PATH=${TESSERACT_SHARE_DIR}")
 
-  add_executable(tesseract_visualization_threepp_unit test/threepp_unit.cpp)
-  target_link_libraries(tesseract_visualization_threepp_unit PRIVATE tesseract_visualization_threepp GTest::gtest_main)
-  add_test(NAME tesseract_visualization_threepp_unit COMMAND tesseract_visualization_threepp_unit)
-  set_tests_properties(tesseract_visualization_threepp_unit PROPERTIES
-    ENVIRONMENT "TESSERACT_VISUALIZATION_PLUGIN_DIRECTORIES=$<TARGET_FILE_DIR:tesseract_visualization_threepp_plugin>;TESSERACT_VISUALIZATION_PLUGINS=tesseract_visualization_threepp_plugin")
+  # These render, so they need EGL, which is Linux only
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(tesseract_visualization_threepp_unit test/threepp_unit.cpp)
+    target_link_libraries(tesseract_visualization_threepp_unit PRIVATE tesseract_visualization_threepp GTest::gtest_main)
+    add_test(NAME tesseract_visualization_threepp_unit COMMAND tesseract_visualization_threepp_unit)
+    set_tests_properties(tesseract_visualization_threepp_unit PROPERTIES
+      ENVIRONMENT "TESSERACT_VISUALIZATION_PLUGIN_DIRECTORIES=$<TARGET_FILE_DIR:tesseract_visualization_threepp_plugin>;TESSERACT_VISUALIZATION_PLUGINS=tesseract_visualization_threepp_plugin")
+  endif()
 endif()

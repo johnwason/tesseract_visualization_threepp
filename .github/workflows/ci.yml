@@ -12,6 +12,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  VCPKG_COMMON_PKGS: >-
+    boost-beast boost-dll boost-filesystem boost-program-options boost-stacktrace
+    cereal tinyxml2 spdlog assimp urdfdom octomap orocos-kdl pcl gtest jsoncpp
+    openssl yaml-cpp eigen3 fcl bullet3[multithreading,double-precision,rtti]
+    ccd[double-precision]
   # threepp builds its examples, tests and editor by default when it is the top level project
   UPSTREAM_CMAKE_ARGS: >-
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DTHREEPP_BUILD_EXAMPLES=OFF -DTHREEPP_BUILD_TESTS=OFF
@@ -68,3 +73,107 @@ jobs:
           source "$GITHUB_WORKSPACE/target_ws/install/setup.bash"
           LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --no-tests=error --output-on-failure -V \
             --test-dir "$GITHUB_WORKSPACE/target_ws/build/tesseract_visualization_threepp"
+
+  macos:
+    name: macOS ${{ matrix.config.arch }}
+    runs-on: ${{ matrix.config.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - runner: macos-15-intel
+            arch: x64
+            triplet: x64-osx-dynamic-release
+            homebrew_root: /usr/local
+          - runner: macos-15
+            arch: arm64
+            triplet: arm64-osx-dynamic-release
+            homebrew_root: /opt/homebrew
+    env:
+      CMAKE_COMMON: >-
+        -G Ninja -DVCPKG_TARGET_TRIPLET=${{ matrix.config.triplet }} -DCMAKE_BUILD_TYPE=Release
+        -DVCPKG_APPLOCAL_DEPS=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+        -DOpenMP_CXX_INCLUDE_DIR=${{ matrix.config.homebrew_root }}/opt/libomp/include
+        -DOpenMP_C_INCLUDE_DIR=${{ matrix.config.homebrew_root }}/opt/libomp/include
+        -DOpenMP_CXX_LIB_NAMES=libomp -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp"
+        -DOpenMP_C_LIB_NAMES=libomp -DOpenMP_C_FLAGS="-Xpreprocessor -fopenmp"
+        -DOpenMP_libomp_LIBRARY=${{ matrix.config.homebrew_root }}/opt/libomp/lib/libomp.dylib
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: target_ws/src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: brew install libomp cmake automake autoconf autoconf-archive libtool gcc ninja
+
+      - name: Build vcpkg packages
+        uses: johnwason/vcpkg-action@v8
+        with:
+          pkgs: ${{ env.VCPKG_COMMON_PKGS }} benchmark flann openblas ompl taskflow gperftools
+          triplet: ${{ matrix.config.triplet }}
+          extra-args: --clean-after-build --overlay-triplets=${{ github.workspace }}/target_ws/src/.github/workflows/vcpkg_triplets
+          token: ${{ github.token }}
+          cache-key: ci-macos-${{ matrix.config.arch }}
+
+      - name: Update environment
+        shell: bash
+        run: |
+          echo "DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.config.triplet }}/lib" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH:$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.config.triplet }}" >> "$GITHUB_ENV"
+
+      # The rendering tests are Linux only, so only the conversion tests run here
+      - name: Build and test
+        uses: tesseract-robotics/colcon-action@v16
+        with:
+          ccache-prefix: ci-macos-${{ matrix.config.arch }}
+          vcs-file: dependencies.repos
+          rosdep-enabled: false
+          upstream-args: --event-handlers console_direct+ --merge-install --cmake-args ${{ env.CMAKE_COMMON }} ${{ env.UPSTREAM_CMAKE_ARGS }}
+          target-path: target_ws/src
+          target-args: --event-handlers console_direct+ --merge-install --cmake-args ${{ env.CMAKE_COMMON }} ${{ env.TARGET_CMAKE_ARGS }}
+          run-tests-args: --merge-install
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    env:
+      TRIPLET: x64-windows-v143-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: target_ws/src
+
+      - name: Build vcpkg packages
+        uses: johnwason/vcpkg-action@v8
+        with:
+          pkgs: ${{ env.VCPKG_COMMON_PKGS }} benchmark lapack-reference boost-graph
+          triplet: ${{ env.TRIPLET }}
+          extra-args: --clean-after-build --overlay-triplets=${{ github.workspace }}/target_ws/src/.github/workflows/vcpkg_triplets
+          token: ${{ github.token }}
+          cache-key: ci-windows
+
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: "14.4"
+
+      - name: Update environment
+        shell: bash
+        run: |
+          echo "PATH=${{ env.PATH }};$GITHUB_WORKSPACE\vcpkg\installed\${{ env.TRIPLET }}\bin" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$GITHUB_WORKSPACE\vcpkg\installed\${{ env.TRIPLET }}" >> "$GITHUB_ENV"
+
+      # The rendering tests are Linux only, so only the conversion tests run here
+      - name: Build and test
+        uses: tesseract-robotics/colcon-action@v16
+        with:
+          ccache-prefix: ci-windows
+          vcs-file: dependencies.repos
+          upstream-args: --event-handlers console_direct+ --cmake-args -G "Ninja" -DVCPKG_TARGET_TRIPLET=${{ env.TRIPLET }} ${{ env.UPSTREAM_CMAKE_ARGS }}
+          target-path: target_ws/src
+          target-args: --event-handlers console_direct+ --cmake-args -G "Ninja" -DVCPKG_TARGET_TRIPLET=${{ env.TRIPLET }} ${{ env.TARGET_CMAKE_ARGS }}
