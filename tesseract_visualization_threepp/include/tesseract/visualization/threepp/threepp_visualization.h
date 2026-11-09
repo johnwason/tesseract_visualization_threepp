@@ -29,6 +29,7 @@ struct ThreeppVisualizationOptions
   int width{ 1280 };
   int height{ 720 };
   std::string title{ "Tesseract" };
+  bool ground_grid{ true };  ///< Draw a 10 m grid with 0.5 m cells on the Z = 0 plane
 
   /** @throws std::invalid_argument unless text is auto, window or headless */
   static ThreeppDisplayMode parseMode(const std::string& text);

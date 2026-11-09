@@ -42,6 +42,7 @@ ThreeppVisualizationOptions headless()
   options.mode = ThreeppDisplayMode::HEADLESS;
   options.width = 320;
   options.height = 240;
+  options.ground_grid = false;  // So that an empty scene is entirely background
   return options;
 }
 
@@ -98,6 +99,16 @@ TEST(ThreeppVisualization, RendersAnEmptySceneHeadless)
   EXPECT_EQ(image->height, 240);
   EXPECT_EQ(image->rgba.size(), std::size_t{ 320 * 240 * 4 });
   EXPECT_EQ(litPixels(*image), 0);
+}
+
+TEST(ThreeppVisualization, GroundGridIsDrawnByDefault)
+{
+  ThreeppVisualizationOptions options = headless();
+  options.ground_grid = ThreeppVisualizationOptions{}.ground_grid;
+  ThreeppVisualization viewer(options);
+  const auto image = viewer.renderImage();
+  ASSERT_TRUE(image.has_value());
+  EXPECT_GT(litPixels(*image), 200);
 }
 
 TEST(ThreeppVisualization, PlottedEnvironmentAppears)
