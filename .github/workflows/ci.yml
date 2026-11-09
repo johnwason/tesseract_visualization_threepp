@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # threepp builds its examples, tests and editor by default when it is the top level project
+  UPSTREAM_CMAKE_ARGS: >-
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DTHREEPP_BUILD_EXAMPLES=OFF -DTHREEPP_BUILD_TESTS=OFF
+    -DTHREEPP_BUILD_EDITOR=OFF -DTHREEPP_WITH_AUDIO=OFF
+  TARGET_CMAKE_ARGS: -DCMAKE_BUILD_TYPE=Release -DTESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING=ON
+
+jobs:
+  linux:
+    name: Ubuntu 24.04 ${{ matrix.config.arch }}
+    runs-on: ${{ matrix.config.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    container:
+      image: ubuntu:noble
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        TZ: Etc/UTC
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: target_ws/src
+
+      # X11 headers for the GLFW that threepp builds, and Mesa and EGL to render with no GPU or display
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get upgrade -y
+          apt-get install -y liboctomap-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxext-dev libgl-dev libegl-dev libegl1 libegl-mesa0 libgl1-mesa-dri xvfb xauth libssl-dev
+
+      - name: Build and test headless
+        uses: tesseract-robotics/colcon-action@v16
+        with:
+          ccache-prefix: ci-linux-${{ matrix.config.arch }}
+          vcs-file: dependencies.repos
+          rosdep-install-args: -iry --skip-keys cereal
+          upstream-args: --cmake-args ${{ env.UPSTREAM_CMAKE_ARGS }}
+          target-path: target_ws/src
+          target-args: --cmake-args ${{ env.TARGET_CMAKE_ARGS }}
+
+      # The headless tests skip the GLFW window test when there is no display
+      - name: Test on a virtual display
+        shell: bash
+        run: |
+          # shellcheck disable=SC1091
+          source "$GITHUB_WORKSPACE/upstream_ws/install/setup.bash"
+          # shellcheck disable=SC1091
+          source "$GITHUB_WORKSPACE/target_ws/install/setup.bash"
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --no-tests=error --output-on-failure -V \
+            --test-dir "$GITHUB_WORKSPACE/target_ws/build/tesseract_visualization_threepp"

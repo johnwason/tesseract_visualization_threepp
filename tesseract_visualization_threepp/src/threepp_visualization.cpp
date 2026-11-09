@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <deque>
 #include <exception>
+#include <cmath>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -16,146 +17,25 @@
 #include <utility>
 
 #include <threepp/canvas/EglContext.hpp>
-#include <threepp/loaders/GLTFLoader.hpp>
 #include <threepp/threepp.hpp>
 
 #include <tesseract/common/joint_state.h>
 #include <tesseract/common/logging.h>
 #include <tesseract/environment/environment.h>
-#include <tesseract/scene_graph/joint.h>
 #include <tesseract/scene_graph/scene_state.h>
 #include <tesseract/state_solver/state_solver.h>
 #include <tesseract/visualization/markers/marker.h>
-#include <tesseract/visualization/threejs/conversions.h>
+#include <tesseract/visualization/threepp/conversions.h>
 #include <tesseract/visualization/threepp/threepp_visualization.h>
-
-// This namespace is also called threepp, so the library has to be named from the global scope
-namespace tp = ::threepp;
 
 namespace tesseract::visualization::threepp
 {
-using tesseract::visualization::threejs::ViewerMarker;
-
 namespace
 {
-constexpr double UNTIMED_TRAJECTORY_DURATION = 5.0;
 constexpr float PI_2 = 1.57079632679489661923F;
 
 /** @brief GLAD's function pointers are process wide, so one object renders at a time */
 std::atomic_bool context_in_use{ false };
-
-using JointValues = std::unordered_map<std::string, double>;
-
-struct JointInfo
-{
-  std::string name;
-  tp::Vector3 axis;
-  tesseract::scene_graph::JointType type;
-};
-
-/** @brief Every joint's value at each trajectory time, including mimic joints */
-struct Playback
-{
-  std::vector<double> times;
-  std::vector<JointValues> states;
-  double duration() const { return times.back(); }
-};
-
-JointValues toJointValues(const tesseract::scene_graph::SceneState& state)
-{
-  JointValues values;
-  values.reserve(state.joints.size());
-  for (const auto& [id, value] : state.joints)
-    values.emplace(id.name(), value);
-  return values;
-}
-
-JointValues sample(const Playback& playback, double time)
-{
-  const auto& times = playback.times;
-  if (time <= times.front() || times.size() == 1)
-    return playback.states.front();
-  if (time >= times.back())
-    return playback.states.back();
-
-  const auto after = static_cast<std::size_t>(std::upper_bound(times.begin(), times.end(), time) - times.begin());
-  const std::size_t before = after - 1;
-  const double span = times[after] - times[before];
-  const double blend = span > 0 ? (time - times[before]) / span : 0.0;
-
-  JointValues values = playback.states[before];
-  for (auto& [name, value] : values)
-    if (const auto it = playback.states[after].find(name); it != playback.states[after].end())
-      value += blend * (it->second - value);
-  return values;
-}
-
-tp::Vector3 toVector(const std::array<double, 3>& v)
-{
-  return { static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2]) };
-}
-
-tp::Color toColor(const ViewerMarker& marker)
-{
-  return { static_cast<float>(marker.color[0]), static_cast<float>(marker.color[1]), static_cast<float>(marker.color[2]) };
-}
-
-std::shared_ptr<tp::Material> surfaceMaterial(const ViewerMarker& marker)
-{
-  auto material = tp::MeshPhongMaterial::create();
-  material->color = toColor(marker);
-  material->opacity = static_cast<float>(marker.color[3]);
-  material->transparent = marker.color[3] < 1.0;
-  material->side = tp::Side::Double;
-  return material;
-}
-
-/** @brief The same geometry conventions as the three.js client, which convertMarker's output expects */
-std::shared_ptr<tp::Object3D> markerObject(const ViewerMarker& marker)
-{
-  const auto length = [&marker] { return static_cast<float>(marker.length.value()); };
-  const auto radius = [&marker] { return static_cast<float>(marker.radius.value()); };
-
-  // An arrow is placed by its origin, ignoring the marker's pose
-  if (marker.marker_type == "arrow")
-    return tp::ArrowHelper::create(toVector(marker.direction.value()), toVector(marker.origin.value()), length(), toColor(marker));
-
-  std::shared_ptr<tp::Object3D> object;
-  if (marker.marker_type == "axes")
-    object = tp::AxesHelper::create(static_cast<float>(marker.size.value()));
-  else if (marker.marker_type == "box")
-  {
-    const auto& extents = marker.extents.value();
-    object = tp::Mesh::create(tp::BoxGeometry::create(static_cast<float>(extents[0]), static_cast<float>(extents[1]), static_cast<float>(extents[2])),
-                              surfaceMaterial(marker));
-  }
-  else if (marker.marker_type == "sphere")
-    object = tp::Mesh::create(tp::SphereGeometry::create(radius(), 32, 16), surfaceMaterial(marker));
-  else if (marker.marker_type == "cylinder")
-    object = tp::Mesh::create(tp::CylinderGeometry::create(radius(), radius(), length(), 32), surfaceMaterial(marker));
-  else if (marker.marker_type == "cone")
-    object = tp::Mesh::create(tp::ConeGeometry::create(radius(), length(), 32), surfaceMaterial(marker));
-  else if (marker.marker_type == "capsule")
-    object = tp::Mesh::create(tp::CapsuleGeometry::create(radius(), length()), surfaceMaterial(marker));
-  else if (marker.marker_type == "lines")
-  {
-    std::vector<tp::Vector3> points;
-    for (const auto& vertex : marker.vertices.value())
-      points.push_back(toVector(vertex));
-    auto geometry = tp::BufferGeometry::create();
-    geometry->setFromPoints(points);
-    auto material = tp::LineBasicMaterial::create();
-    material->color = toColor(marker);
-    object = tp::Line::create(geometry, material);
-  }
-  else
-    throw std::invalid_argument("Unknown marker type " + marker.marker_type);
-
-  object->position.copy(toVector(marker.position));
-  const auto& q = marker.quaternion;  // w, x, y, z
-  object->quaternion.set(static_cast<float>(q[1]), static_cast<float>(q[2]), static_cast<float>(q[3]), static_cast<float>(q[0]));
-  return object;
-}
 
 /** @brief Everything that touches OpenGL. It is created, used and destroyed on the render thread */
 class Renderer
@@ -215,62 +95,33 @@ public:
     return "OpenGL window";
   }
 
-  void loadEnvironment(const std::vector<std::uint8_t>& glb, std::vector<JointInfo> joints, const JointValues& values)
+  void loadEnvironment(EnvironmentScene scene, const JointValues& values)
   {
-    tp::GLTFLoader loader;
-    auto result = loader.load(glb);
-    if (!result || result->scene == nullptr)
-      throw std::runtime_error("threepp could not load the scene");
+    // The old graph goes last, so that markers can move straight from it to the new one
+    const EnvironmentScene old_scene = std::exchange(scene_data_, std::move(scene));
+    z_up_->add(scene_data_.root);
+    for (const auto& marker : markers_)
+      attach(marker);
+    if (old_scene.root != nullptr)
+      z_up_->remove(*old_scene.root);
 
-    z_up_->clear();
-    z_up_->add(result->scene);
-    root_ = result->scene;
-    links_.clear();
-    joint_nodes_.clear();
-    root_->traverse([this](tp::Object3D& object) {
-      if (object.userData.count("tesseract_link") != 0)
-        links_[object.name] = &object;
-      else if (object.userData.count("tesseract_joint") != 0)
-        joint_nodes_[object.name] = &object;
-    });
-    joints_ = std::move(joints);
-
-    applyJointValues(values);
-    for (auto& entry : markers_)
-      attach(entry);
+    setJointValues(scene_data_, values);
     if (playback_)
-      applyJointValues(sample(*playback_, playback_time_));
-  }
-
-  void applyJointValues(const JointValues& values)
-  {
-    using tesseract::scene_graph::JointType;
-    for (const auto& joint : joints_)
-    {
-      const auto node = joint_nodes_.find("joint_" + joint.name);
-      const auto value = values.find(joint.name);
-      if (node == joint_nodes_.end() || value == values.end())
-        continue;
-      const auto amount = static_cast<float>(value->second);
-      if (joint.type == JointType::REVOLUTE || joint.type == JointType::CONTINUOUS)
-        node->second->quaternion.setFromAxisAngle(joint.axis, amount);
-      else if (joint.type == JointType::PRISMATIC)
-        node->second->position.copy(tp::Vector3(joint.axis).multiplyScalar(amount));
-    }
+      setJointValues(scene_data_, playback_->sample(playback_time_));
   }
 
   void setStaticState(const JointValues& values)
   {
     playback_.reset();
-    applyJointValues(values);
+    setJointValues(scene_data_, values);
   }
 
-  void setPlayback(Playback playback)
+  void setPlayback(JointValueTrajectory playback)
   {
     playback_ = std::move(playback);
     playback_time_ = 0;
     playing_ = !headless_;
-    applyJointValues(sample(*playback_, playback_time_));
+    setJointValues(scene_data_, playback_->sample(playback_time_));
   }
 
   void seek(double time)
@@ -279,14 +130,14 @@ public:
       return;
     playing_ = false;
     playback_time_ = std::clamp(time, 0.0, playback_->duration());
-    applyJointValues(sample(*playback_, playback_time_));
+    setJointValues(scene_data_, playback_->sample(playback_time_));
   }
 
-  void addMarkers(std::vector<ViewerMarker> markers, const std::string& ns)
+  void addMarkers(std::vector<MarkerObject> markers, const std::string& ns)
   {
     for (auto& marker : markers)
     {
-      markers_.push_back(MarkerEntry{ std::move(marker), ns, nullptr });
+      markers_.push_back(MarkerEntry{ std::move(marker), ns });
       attach(markers_.back());
     }
   }
@@ -296,8 +147,7 @@ public:
     const auto end = std::remove_if(markers_.begin(), markers_.end(), [&ns](MarkerEntry& entry) {
       if (!ns.empty() && entry.ns != ns)
         return false;
-      if (entry.object != nullptr)
-        entry.object->removeFromParent();
+      detach(entry);
       return true;
     });
     markers_.erase(end, markers_.end());
@@ -312,7 +162,7 @@ public:
     if (!playback_ || !playing_ || playback_->duration() <= 0)
       return;
     playback_time_ = std::fmod(playback_time_ + delta, playback_->duration());
-    applyJointValues(sample(*playback_, playback_time_));
+    setJointValues(scene_data_, playback_->sample(playback_time_));
   }
 
   void render()
@@ -350,20 +200,24 @@ public:
 private:
   struct MarkerEntry
   {
-    ViewerMarker marker;
+    MarkerObject marker;
     std::string ns;
-    std::shared_ptr<tp::Object3D> object;
   };
 
-  /** @brief Links can come and go with the scene, so markers are built again on every load */
-  void attach(MarkerEntry& entry)
+  static void detach(const MarkerEntry& entry)
   {
-    entry.object = nullptr;
-    const auto link = links_.find("link_" + entry.marker.parent_link_name);
-    if (link == links_.end())
-      return;  // Kept, in case a later scene has the link
-    entry.object = markerObject(entry.marker);
-    link->second->add(entry.object);
+    if (entry.marker.object->parent != nullptr)
+      entry.marker.object->removeFromParent();
+  }
+
+  /** @brief A marker whose link is not in this scene is kept, in case a later scene has the link */
+  void attach(const MarkerEntry& entry)
+  {
+    const auto link = scene_data_.links.find(entry.marker.parent_link);
+    if (link == scene_data_.links.end())
+      detach(entry);
+    else
+      link->second->add(entry.marker.object);
   }
 
   bool headless_;
@@ -374,15 +228,12 @@ private:
   std::unique_ptr<tp::OrbitControls> controls_;
   std::shared_ptr<tp::Scene> scene_;
   std::shared_ptr<tp::Group> z_up_;
-  std::shared_ptr<tp::Group> root_;
   std::shared_ptr<tp::PerspectiveCamera> camera_;
 
-  std::unordered_map<std::string, tp::Object3D*> links_;
-  std::unordered_map<std::string, tp::Object3D*> joint_nodes_;
-  std::vector<JointInfo> joints_;
+  EnvironmentScene scene_data_;
   std::vector<MarkerEntry> markers_;
 
-  std::optional<Playback> playback_;
+  std::optional<JointValueTrajectory> playback_;
   double playback_time_{ 0 };
   bool playing_{ false };
   std::chrono::steady_clock::time_point last_frame_{ std::chrono::steady_clock::now() };
@@ -651,25 +502,15 @@ void ThreeppVisualization::waitForConnection(long /*seconds*/) const { ensureSta
 void ThreeppVisualization::plotEnvironment(const tesseract::environment::Environment& env, std::string /*ns*/)
 {
   guard([&] {
-    // Reading meshes is the slow part, so it stays off the render thread and a window stays responsive
-    auto glb = threejs::environmentToGlb(env);
-
-    std::vector<JointInfo> joints;
-    for (const auto& id : env.getJointIds())
-    {
-      const auto joint = env.getJoint(id);
-      joints.push_back(JointInfo{ joint->getName(),
-                                  tp::Vector3(static_cast<float>(joint->axis.x()), static_cast<float>(joint->axis.y()),
-                                              static_cast<float>(joint->axis.z())),
-                                  joint->type });
-    }
-
+    // Reading meshes and building the graph is the slow part, so a window stays responsive
+    auto scene = environmentToScene(env);
     {
       const std::lock_guard<std::mutex> lock(mutex_);
       root_link_ = env.getRootLinkId().name();
     }
-    render_thread_->post([glb = std::move(glb), joints = std::move(joints), values = toJointValues(env.getState())](
-                             Renderer& renderer) mutable { renderer.loadEnvironment(glb, std::move(joints), values); });
+    render_thread_->post([scene = std::move(scene), values = sceneStateToJointValues(env.getState())](Renderer& renderer) mutable {
+      renderer.loadEnvironment(std::move(scene), values);
+    });
   });
 }
 
@@ -678,7 +519,7 @@ void ThreeppVisualization::plotEnvironmentState(const tesseract::scene_graph::Sc
   if (state.joints.empty())
     return;
   guard([&] {
-    render_thread_->post([values = toJointValues(state)](Renderer& renderer) { renderer.setStaticState(values); });
+    render_thread_->post([values = sceneStateToJointValues(state)](Renderer& renderer) { renderer.setStaticState(values); });
   });
 }
 
@@ -687,36 +528,17 @@ void ThreeppVisualization::plotTrajectory(const tesseract::common::JointTrajecto
                                           std::string /*ns*/)
 {
   guard([&] {
-    if (traj.states.empty())
-      throw std::invalid_argument("Trajectory is empty");
-
-    Playback playback;
-    playback.times.reserve(traj.states.size());
-    playback.states.reserve(traj.states.size());
-    for (const auto& state : traj.states)
-    {
-      playback.times.push_back(state.time);
-      // The solver fills in mimic joints, which a trajectory does not list
-      playback.states.push_back(toJointValues(state_solver.getState(state.joint_ids, state.position)));
-    }
-
-    // Animation runs on time, so a path with no timing is spread evenly, as Ignition does
-    const bool untimed = playback.times.size() > 1 && std::all_of(playback.times.begin(), playback.times.end(), [&](double time) {
-                           return time == playback.times.front();
-                         });
-    if (untimed)
-      for (std::size_t i = 0; i < playback.times.size(); ++i)
-        playback.times[i] = UNTIMED_TRAJECTORY_DURATION * static_cast<double>(i) / static_cast<double>(playback.times.size() - 1);
-
-    render_thread_->post([playback = std::move(playback)](Renderer& renderer) mutable { renderer.setPlayback(std::move(playback)); });
+    render_thread_->post([playback = toJointValueTrajectory(traj, state_solver)](Renderer& renderer) mutable {
+      renderer.setPlayback(std::move(playback));
+    });
   });
 }
 
 void ThreeppVisualization::plotMarker(const tesseract::visualization::Marker& marker, std::string ns)
 {
   guard([&] {
-    render_thread_->post([markers = threejs::convertMarker(marker, rootLink()), ns = std::move(ns)](Renderer& renderer) mutable {
-      renderer.addMarkers(std::move(markers), ns);
+    render_thread_->post([objects = markerToObjects(marker, rootLink()), ns = std::move(ns)](Renderer& renderer) mutable {
+      renderer.addMarkers(std::move(objects), ns);
     });
   });
 }
@@ -725,14 +547,14 @@ void ThreeppVisualization::plotMarkers(const std::vector<std::shared_ptr<tessera
 {
   guard([&] {
     const std::string root = rootLink();
-    std::vector<ViewerMarker> converted;
+    std::vector<MarkerObject> objects;
     for (const auto& marker : markers)
     {
-      auto part = threejs::convertMarker(*marker, root);
-      converted.insert(converted.end(), std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()));
+      auto part = markerToObjects(*marker, root);
+      objects.insert(objects.end(), std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()));
     }
-    render_thread_->post([converted = std::move(converted), ns = std::move(ns)](Renderer& renderer) mutable {
-      renderer.addMarkers(std::move(converted), ns);
+    render_thread_->post([objects = std::move(objects), ns = std::move(ns)](Renderer& renderer) mutable {
+      renderer.addMarkers(std::move(objects), ns);
     });
   });
 }

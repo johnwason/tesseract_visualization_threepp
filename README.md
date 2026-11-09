@@ -2,7 +2,10 @@
 
 A `tesseract::visualization::Visualization` plugin that renders in process with
 [threepp](https://github.com/markaren/threepp), in a GLFW window or headless through EGL. There is no
-server or browser. It reuses the scene and marker conversions of `tesseract_visualization_threejs`.
+server or browser.
+
+`conversions.h` builds the threepp scene graph directly from a tesseract environment and markers. It has no
+dependency on the viewer, but including it needs C++20. The viewer's own header stays C++17.
 
 ## Building
 

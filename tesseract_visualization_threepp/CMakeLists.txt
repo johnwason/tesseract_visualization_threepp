@@ -13,17 +13,16 @@ endif()
 
 option(TESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING "Build the unit tests" OFF)
 
-find_package(tesseract_visualization_threejs REQUIRED)
 find_package(tesseract REQUIRED COMPONENTS common geometry scene_graph state_solver collision kinematics environment
                                            visualization)
 find_package(Threads REQUIRED)
 
 # threepp needs C++20, but only inside this library. The public header stays C++17.
-add_library(tesseract_visualization_threepp src/threepp_visualization.cpp)
+add_library(tesseract_visualization_threepp src/conversions.cpp src/threepp_visualization.cpp)
 target_compile_features(tesseract_visualization_threepp PUBLIC cxx_std_17)
 target_compile_options(tesseract_visualization_threepp PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra>)
 target_link_libraries(tesseract_visualization_threepp
-                      PUBLIC tesseract::tesseract_visualization_threejs tesseract::visualization tesseract::environment
+                      PUBLIC tesseract::visualization tesseract::environment tesseract::scene_graph tesseract::geometry tesseract::common
                       PRIVATE threepp::threepp Threads::Threads)
 target_include_directories(tesseract_visualization_threepp PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
                                                                   "$<INSTALL_INTERFACE:include>")
@@ -38,13 +37,21 @@ target_link_libraries(tesseract_visualization_threepp_abb_irb2400_viewer PRIVATE
 configure_package(NAMESPACE tesseract
                   TARGETS tesseract_visualization_threepp tesseract_visualization_threepp_plugin
                           tesseract_visualization_threepp_abb_irb2400_viewer
-                  DEPENDENCIES tesseract_visualization_threejs
-                  "tesseract COMPONENTS common geometry scene_graph state_solver collision kinematics environment visualization")
+                  DEPENDENCIES "tesseract COMPONENTS common geometry scene_graph state_solver collision kinematics environment visualization")
 install(DIRECTORY include/ DESTINATION include FILES_MATCHING PATTERN "*.h")
 
 if(TESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING)
   enable_testing()
   find_package(GTest REQUIRED)
+
+  # tesseract installs its support data, which the tests load as package://tesseract/support
+  get_filename_component(TESSERACT_SHARE_DIR "${tesseract_DIR}/../../../share" ABSOLUTE)
+
+  # conversions.h exposes threepp, unlike the viewer's header
+  add_executable(tesseract_visualization_threepp_conversions_unit test/conversions_unit.cpp)
+  target_link_libraries(tesseract_visualization_threepp_conversions_unit PRIVATE tesseract_visualization_threepp threepp::threepp GTest::gtest_main)
+  add_test(NAME tesseract_visualization_threepp_conversions_unit COMMAND tesseract_visualization_threepp_conversions_unit)
+  set_tests_properties(tesseract_visualization_threepp_conversions_unit PROPERTIES ENVIRONMENT "TESSERACT_RESOURCE_PATH=${TESSERACT_SHARE_DIR}")
 
   add_executable(tesseract_visualization_threepp_unit test/threepp_unit.cpp)
   target_link_libraries(tesseract_visualization_threepp_unit PRIVATE tesseract_visualization_threepp GTest::gtest_main)

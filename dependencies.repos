@@ -15,10 +15,6 @@
     uri: https://github.com/johnwason/tesseract.git
     version: 337308dca24cca57c234b14fa0c226d53def439c
 - git:
-    local-name: tesseract_visualization_threejs
-    uri: https://github.com/johnwason/tesseract_visualization_threejs.git
-    version: 092cf3d6ed55bf68b4c4faa07c776dfa7d3e70f9
-- git:
     local-name: threepp
     uri: https://github.com/markaren/threepp.git
     version: 2026-11-04
