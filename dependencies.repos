@@ -1,0 +1,24 @@
+- git:
+    local-name: ros_industrial_cmake_boilerplate
+    uri: https://github.com/ros-industrial/ros_industrial_cmake_boilerplate.git
+    version: 0.7.4
+- git:
+    local-name: boost_plugin_loader
+    uri: https://github.com/tesseract-robotics/boost_plugin_loader.git
+    version: 0.4.5
+- git:
+    local-name: opw_kinematics
+    uri: https://github.com/Jmeyer1292/opw_kinematics.git
+    version: 0.5.5
+- git:
+    local-name: tesseract
+    uri: https://github.com/johnwason/tesseract.git
+    version: 337308dca24cca57c234b14fa0c226d53def439c
+- git:
+    local-name: tesseract_visualization_threejs
+    uri: https://github.com/johnwason/tesseract_visualization_threejs.git
+    version: 092cf3d6ed55bf68b4c4faa07c776dfa7d3e70f9
+- git:
+    local-name: threepp
+    uri: https://github.com/markaren/threepp.git
+    version: 2026-11-04

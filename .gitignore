@@ -1,0 +1,3 @@
+# Upstream checkouts and container build output
+/src/
+/build/

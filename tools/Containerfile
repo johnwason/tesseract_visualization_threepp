@@ -1,0 +1,41 @@
+# Development image for tesseract_visualization_threepp. Follows tesseract's own Ubuntu recipe
+# (src/tesseract/docker/Dockerfile and .github/workflows/ubuntu.yml, distro noble) so that every
+# apt/rosdep package is baked in once and builds never need the apt servers.
+#
+# Sources are bind-mounted at build time to resolve rosdep keys only; none are copied in.
+# Build with tools/build_image.sh.
+FROM docker.io/library/ubuntu:noble
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get upgrade -y -qq \
+ && apt-get install -y -qq cmake curl git python3 liboctomap-dev ca-certificates \
+      build-essential ninja-build ccache
+
+# ROS 2 apt source: only for the build tools (vcstool, colcon, rosdep), as in tesseract's Dockerfile
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+      -o /usr/share/keyrings/ros-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu noble main" \
+      > /etc/apt/sources.list.d/ros2.list \
+ && apt-get update -qq \
+ && apt-get install -y -qq python3-vcstool python3-colcon-common-extensions python3-rosdep \
+ && rosdep init && rosdep update --rosdistro jazzy
+
+# tesseract's dependencies, with the skip key its CI uses on noble
+RUN rosdep install --rosdistro jazzy -iry --skip-keys cereal --from-paths \
+      /deps/tesseract /deps/ros_industrial_cmake_boilerplate /deps/boost_plugin_loader /deps/opw_kinematics
+
+# tesseract_visualization_threejs's own dependencies. Boost.Beast ships in libboost-dev on noble.
+RUN apt-get install -y -qq libboost-all-dev libjsoncpp-dev libgtest-dev libgmock-dev \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# X11 headers for the GLFW that threepp builds, and Mesa and EGL to render without a display or GPU
+RUN apt-get update -qq && apt-get install -y -qq libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+      libxext-dev libgl-dev libegl-dev libegl1 libegl-mesa0 libgl1-mesa-dri xvfb libssl-dev \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Debugging and formatting tools
+RUN apt-get update -qq && apt-get install -y -qq gdb valgrind strace jq clang-format \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV CCACHE_DIR=/ws/build/ccache
+WORKDIR /ws
