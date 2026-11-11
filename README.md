@@ -37,6 +37,7 @@ order decides which loads.
 | `TESSERACT_VISUALIZATION_THREEPP_MODE` | `mode` | `auto` | `window`, `headless`, or `auto`: a window if `DISPLAY` is set |
 | `TESSERACT_VISUALIZATION_THREEPP_WIDTH` | `width` | 1280 | Pixels |
 | `TESSERACT_VISUALIZATION_THREEPP_HEIGHT` | `height` | 720 | Pixels |
+| `TESSERACT_VISUALIZATION_THREEPP_LIGHTING` | `lighting` | `hemisphere` | `hemisphere`, or `environment` to add an environment map for PBR materials, like the three.js client's `?lighting=environment` |
 
 A window has orbit controls and plays trajectories in a loop. Headless, use `ThreeppVisualization` directly:
 `renderImage()` returns the pixels, `saveImage(path)` writes a file, and `seekTrajectory(time)` picks the frame.

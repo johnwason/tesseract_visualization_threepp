@@ -23,6 +23,13 @@ enum class ThreeppDisplayMode
   HEADLESS,  ///< An EGL context with no window or display server. Linux only
 };
 
+/** @brief How the scene is lit */
+enum class ThreeppLighting
+{
+  HEMISPHERE,   ///< A hemisphere light, as the three.js client uses by default. More contrast on CAD meshes
+  ENVIRONMENT,  ///< Also an environment map, so metallic and rough PBR materials and normal maps look as intended
+};
+
 struct ThreeppVisualizationOptions
 {
   ThreeppDisplayMode mode{ ThreeppDisplayMode::AUTO };
@@ -30,12 +37,16 @@ struct ThreeppVisualizationOptions
   int height{ 720 };
   std::string title{ "Tesseract" };
   bool ground_grid{ true };  ///< Draw a 10 m grid with 0.5 m cells on the Z = 0 plane
+  ThreeppLighting lighting{ ThreeppLighting::HEMISPHERE };
 
   /** @throws std::invalid_argument unless text is auto, window or headless */
   static ThreeppDisplayMode parseMode(const std::string& text);
 
+  /** @throws std::invalid_argument unless text is hemisphere or environment */
+  static ThreeppLighting parseLighting(const std::string& text);
+
   /**
-   * @brief Options from TESSERACT_VISUALIZATION_THREEPP_MODE, _WIDTH and _HEIGHT
+   * @brief Options from TESSERACT_VISUALIZATION_THREEPP_MODE, _WIDTH, _HEIGHT and _LIGHTING
    * @throws std::invalid_argument if a value is not valid
    */
   static ThreeppVisualizationOptions fromEnvironment();

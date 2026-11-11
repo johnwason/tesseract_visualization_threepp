@@ -16,7 +16,7 @@
 
 namespace tesseract::visualization::threepp
 {
-/** @brief Optional configuration: mode, width and height. Unset values come from the environment */
+/** @brief Optional configuration: mode, width, height and lighting. Unset values come from the environment */
 class ThreeppVisualizationFactory : public tesseract::visualization::VisualizationFactory
 {
 public:
@@ -29,6 +29,7 @@ public:
         .string("mode").done()
         .int32("width").minimum(1).done()
         .int32("height").minimum(1).done()
+        .string("lighting").done()
         .build();
     // clang-format on
   }
@@ -44,6 +45,8 @@ protected:
       options.width = width->as<int>();
     if (const auto* height = config.find("height"); height != nullptr && !height->isNull())
       options.height = height->as<int>();
+    if (const auto* lighting = config.find("lighting"); lighting != nullptr && !lighting->isNull())
+      options.lighting = ThreeppVisualizationOptions::parseLighting(lighting->as<std::string>());
     return std::make_unique<ThreeppVisualization>(std::move(options));
   }
 };
