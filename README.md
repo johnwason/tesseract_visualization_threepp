@@ -42,6 +42,22 @@ order decides which loads.
 A window has orbit controls and plays trajectories in a loop. Headless, use `ThreeppVisualization` directly:
 `renderImage()` returns the pixels, `saveImage(path)` writes a file, and `seekTrajectory(time)` picks the frame.
 
+## Examples
+
+| Program | Shows |
+| --- | --- |
+| `tesseract_visualization_threepp_abb_irb2400_viewer [image.png]` | A robot and an animated trajectory |
+| `tesseract_visualization_threepp_pbr_models_viewer <models dir> [image.png]` | glTF sample models using every PBR texture slot, and alpha, emissive and normal map test boards, with environment lighting |
+
+With an image path, an example renders one frame headlessly to it instead of opening a window.
+
+The PBR models example needs models from the Khronos [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets), which are not part of this repository. [examples/download_pbr_models.py](tesseract_visualization_threepp/examples/download_pbr_models.py) downloads them at a pinned commit, using only the Python standard library, and writes the scene URDF and an `ATTRIBUTION.md` with each model's license (CC0 or CC-BY). `--include-noncommercial` adds DamagedHelmet, which is partly CC-BY-NC.
+
+```bash
+python3 tesseract_visualization_threepp/examples/download_pbr_models.py pbr_models
+tesseract_visualization_threepp_pbr_models_viewer pbr_models
+```
+
 ## Limitations
 
 - One object renders per process at a time, because threepp's OpenGL function pointers are process wide. Any other
