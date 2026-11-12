@@ -25,14 +25,16 @@
 #include <tesseract/scene_graph/scene_state.h>
 #include <tesseract/state_solver/state_solver.h>
 #include <tesseract/visualization/markers/marker.h>
-#include <tesseract/visualization/threepp/conversions.h>
+#include <tesseract/threepp/conversions.h>
+#include <tesseract/threepp/tesseract_scene.h>
 #include <tesseract/visualization/threepp/threepp_visualization.h>
 
 namespace tesseract::visualization::threepp
 {
+using namespace ::tesseract::threepp;
+
 namespace
 {
-constexpr float PI_2 = 1.57079632679489661923F;
 
 /** @brief GLAD's function pointers are process wide, so one object renders at a time */
 std::atomic_bool context_in_use{ false };
@@ -41,7 +43,8 @@ std::atomic_bool context_in_use{ false };
 class Renderer
 {
 public:
-  explicit Renderer(const ThreeppVisualizationOptions& options, bool headless) : headless_(headless)
+  explicit Renderer(const ThreeppVisualizationOptions& options, bool headless)
+    : headless_(headless), scene_(TesseractSceneOptions{ options.ground_grid })
   {
     if (headless)
     {
@@ -61,19 +64,6 @@ public:
       gl_ = std::make_unique<tp::GLRenderer>(*canvas_);
     }
     gl_->setClearColor(tp::Color(0x000000));
-
-    scene_ = tp::Scene::create();
-    // Matches the brightness of the three.js client, whose r153 lights are not physically scaled
-    scene_->add(tp::HemisphereLight::create(0xffffff, 0x202018, 2 * PI_2));
-
-    // tesseract is Z up, three.js and threepp are Y up
-    z_up_ = tp::Group::create();
-    z_up_->rotateX(-PI_2);
-    scene_->add(z_up_);
-
-    // The grid is flat in threepp's Y up frame, so it goes in the scene rather than under z_up_
-    if (options.ground_grid)
-      scene_->add(tp::GridHelper::create(10, 20, 0x888888, 0x444444));
 
     camera_ = tp::PerspectiveCamera::create(45, static_cast<float>(options.width) / static_cast<float>(options.height), 0.1F, 1000);
     camera_->position.set(3, 3, -1.5F);
@@ -99,63 +89,10 @@ public:
     return "OpenGL window";
   }
 
-  void loadEnvironment(EnvironmentScene scene, const JointValues& values)
-  {
-    // The old graph goes last, so that markers can move straight from it to the new one
-    const EnvironmentScene old_scene = std::exchange(scene_data_, std::move(scene));
-    z_up_->add(scene_data_.root);
-    for (const auto& marker : markers_)
-      attach(marker);
-    if (old_scene.root != nullptr)
-      z_up_->remove(*old_scene.root);
+  TesseractScene& scene() { return scene_; }
 
-    setJointValues(scene_data_, values);
-    if (playback_)
-      setJointValues(scene_data_, playback_->sample(playback_time_));
-  }
-
-  void setStaticState(const JointValues& values)
-  {
-    playback_.reset();
-    setJointValues(scene_data_, values);
-  }
-
-  void setPlayback(JointValueTrajectory playback)
-  {
-    playback_ = std::move(playback);
-    playback_time_ = 0;
-    playing_ = !headless_;
-    setJointValues(scene_data_, playback_->sample(playback_time_));
-  }
-
-  void seek(double time)
-  {
-    if (!playback_)
-      return;
-    playing_ = false;
-    playback_time_ = std::clamp(time, 0.0, playback_->duration());
-    setJointValues(scene_data_, playback_->sample(playback_time_));
-  }
-
-  void addMarkers(std::vector<MarkerObject> markers, const std::string& ns)
-  {
-    for (auto& marker : markers)
-    {
-      markers_.push_back(MarkerEntry{ std::move(marker), ns });
-      attach(markers_.back());
-    }
-  }
-
-  void clearMarkers(const std::string& ns)
-  {
-    const auto end = std::remove_if(markers_.begin(), markers_.end(), [&ns](MarkerEntry& entry) {
-      if (!ns.empty() && entry.ns != ns)
-        return false;
-      detach(entry);
-      return true;
-    });
-    markers_.erase(end, markers_.end());
-  }
+  /** @brief A window plays trajectories. Headless, they wait at the start for seekTrajectory */
+  void setPlayback(JointValueTrajectory playback) { scene_.setTrajectory(std::move(playback), !headless_); }
 
   /** @brief Advance playback by the time since the last frame, looping */
   void advance()
@@ -163,17 +100,14 @@ public:
     const auto now = std::chrono::steady_clock::now();
     const double delta = std::chrono::duration<double>(now - last_frame_).count();
     last_frame_ = now;
-    if (!playback_ || !playing_ || playback_->duration() <= 0)
-      return;
-    playback_time_ = std::fmod(playback_time_ + delta, playback_->duration());
-    setJointValues(scene_data_, playback_->sample(playback_time_));
+    scene_.advance(delta);
   }
 
   void render()
   {
     if (controls_ != nullptr)
       controls_->update();
-    gl_->render(*scene_, *camera_);
+    gl_->render(scene_.scene(), *camera_);
   }
 
   ThreeppImage capture()
@@ -202,44 +136,16 @@ public:
   }
 
 private:
-  struct MarkerEntry
-  {
-    MarkerObject marker;
-    std::string ns;
-  };
-
-  static void detach(const MarkerEntry& entry)
-  {
-    if (entry.marker.object->parent != nullptr)
-      entry.marker.object->removeFromParent();
-  }
-
-  /** @brief A marker whose link is not in this scene is kept, in case a later scene has the link */
-  void attach(const MarkerEntry& entry)
-  {
-    const auto link = scene_data_.links.find(entry.marker.parent_link);
-    if (link == scene_data_.links.end())
-      detach(entry);
-    else
-      link->second->add(entry.marker.object);
-  }
-
   bool headless_;
   // The context must outlive every other member, and members are destroyed in reverse order
   std::unique_ptr<tp::EglContext> egl_;
   std::unique_ptr<tp::Canvas> canvas_;
   std::unique_ptr<tp::GLRenderer> gl_;
   std::unique_ptr<tp::OrbitControls> controls_;
-  std::shared_ptr<tp::Scene> scene_;
-  std::shared_ptr<tp::Group> z_up_;
   std::shared_ptr<tp::PerspectiveCamera> camera_;
 
-  EnvironmentScene scene_data_;
-  std::vector<MarkerEntry> markers_;
-
-  std::optional<JointValueTrajectory> playback_;
-  double playback_time_{ 0 };
-  bool playing_{ false };
+  // After gl_, so that it is destroyed first, while the renderer can still release its resources
+  TesseractScene scene_;
   std::chrono::steady_clock::time_point last_frame_{ std::chrono::steady_clock::now() };
 };
 
@@ -513,7 +419,7 @@ void ThreeppVisualization::plotEnvironment(const tesseract::environment::Environ
       root_link_ = env.getRootLinkId().name();
     }
     render_thread_->post([scene = std::move(scene), values = sceneStateToJointValues(env.getState())](Renderer& renderer) mutable {
-      renderer.loadEnvironment(std::move(scene), values);
+      renderer.scene().setEnvironment(std::move(scene), values);
     });
   });
 }
@@ -523,7 +429,7 @@ void ThreeppVisualization::plotEnvironmentState(const tesseract::scene_graph::Sc
   if (state.joints.empty())
     return;
   guard([&] {
-    render_thread_->post([values = sceneStateToJointValues(state)](Renderer& renderer) { renderer.setStaticState(values); });
+    render_thread_->post([values = sceneStateToJointValues(state)](Renderer& renderer) { renderer.scene().setJointValues(values); });
   });
 }
 
@@ -542,7 +448,7 @@ void ThreeppVisualization::plotMarker(const tesseract::visualization::Marker& ma
 {
   guard([&] {
     render_thread_->post([objects = markerToObjects(marker, rootLink()), ns = std::move(ns)](Renderer& renderer) mutable {
-      renderer.addMarkers(std::move(objects), ns);
+      renderer.scene().addMarkers(std::move(objects), ns);
     });
   });
 }
@@ -558,14 +464,14 @@ void ThreeppVisualization::plotMarkers(const std::vector<std::shared_ptr<tessera
       objects.insert(objects.end(), std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()));
     }
     render_thread_->post([objects = std::move(objects), ns = std::move(ns)](Renderer& renderer) mutable {
-      renderer.addMarkers(std::move(objects), ns);
+      renderer.scene().addMarkers(std::move(objects), ns);
     });
   });
 }
 
 void ThreeppVisualization::clear(std::string ns)
 {
-  guard([&] { render_thread_->post([ns = std::move(ns)](Renderer& renderer) { renderer.clearMarkers(ns); }); });
+  guard([&] { render_thread_->post([ns = std::move(ns)](Renderer& renderer) { renderer.scene().clearMarkers(ns); }); });
 }
 
 void ThreeppVisualization::waitForInput(std::string message)
@@ -609,7 +515,7 @@ bool ThreeppVisualization::saveImage(const std::string& path)
 
 void ThreeppVisualization::seekTrajectory(double time_s)
 {
-  guard([&] { render_thread_->post([time_s](Renderer& renderer) { renderer.seek(time_s); }); });
+  guard([&] { render_thread_->post([time_s](Renderer& renderer) { renderer.scene().seek(time_s); }); });
 }
 
 std::string ThreeppVisualization::glRendererName()

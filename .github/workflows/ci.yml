@@ -21,7 +21,9 @@ env:
   UPSTREAM_CMAKE_ARGS: >-
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DTHREEPP_BUILD_EXAMPLES=OFF -DTHREEPP_BUILD_TESTS=OFF
     -DTHREEPP_BUILD_EDITOR=OFF -DTHREEPP_WITH_AUDIO=OFF
-  TARGET_CMAKE_ARGS: -DCMAKE_BUILD_TYPE=Release -DTESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING=ON
+  TARGET_CMAKE_ARGS: >-
+    -DCMAKE_BUILD_TYPE=Release -DTESSERACT_THREEPP_ENABLE_TESTING=ON
+    -DTESSERACT_VISUALIZATION_THREEPP_ENABLE_TESTING=ON
 
 jobs:
   linux:
@@ -125,7 +127,7 @@ jobs:
           echo "DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.config.triplet }}/lib" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH:$GITHUB_WORKSPACE/vcpkg/installed/${{ matrix.config.triplet }}" >> "$GITHUB_ENV"
 
-      # The rendering tests are Linux only, so only the conversion tests run here
+      # The rendering tests are Linux only, so only the tesseract_threepp tests run here
       - name: Build and test
         uses: tesseract-robotics/colcon-action@v16
         with:
@@ -168,7 +170,7 @@ jobs:
           echo "PATH=${{ env.PATH }};$GITHUB_WORKSPACE\vcpkg\installed\${{ env.TRIPLET }}\bin" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=$GITHUB_WORKSPACE\vcpkg\installed\${{ env.TRIPLET }}" >> "$GITHUB_ENV"
 
-      # The rendering tests are Linux only, so only the conversion tests run here
+      # The rendering tests are Linux only, so only the tesseract_threepp tests run here
       - name: Build and test
         uses: tesseract-robotics/colcon-action@v16
         with:

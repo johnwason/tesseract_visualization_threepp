@@ -2,13 +2,12 @@
  * @file conversions.h
  * @brief Pure conversions from tesseract types to threepp objects. No window, renderer or OpenGL.
  *
- * Nothing here depends on the viewer. Unlike threepp_visualization.h, this header exposes threepp
- * types, so including it needs C++20.
+ * This header exposes threepp types, so including it needs C++20.
  *
  * threepp objects are ordinary CPU data until first rendered, so these can run on any thread.
  */
-#ifndef TESSERACT_VISUALIZATION_THREEPP_CONVERSIONS_H
-#define TESSERACT_VISUALIZATION_THREEPP_CONVERSIONS_H
+#ifndef TESSERACT_THREEPP_CONVERSIONS_H
+#define TESSERACT_THREEPP_CONVERSIONS_H
 
 #include <memory>
 #include <string>
@@ -29,7 +28,7 @@
 #include <tesseract/state_solver/fwd.h>
 #include <tesseract/visualization/fwd.h>
 
-namespace tesseract::visualization::threepp
+namespace tesseract::threepp
 {
 // This namespace is also called threepp, so the library has to be named from the global scope
 namespace tp = ::threepp;
@@ -113,6 +112,6 @@ struct JointValueTrajectory
 JointValueTrajectory toJointValueTrajectory(const tesseract::common::JointTrajectory& trajectory,
                                             const tesseract::scene_graph::StateSolver& state_solver);
 
-}  // namespace tesseract::visualization::threepp
+}  // namespace tesseract::threepp
 
-#endif  // TESSERACT_VISUALIZATION_THREEPP_CONVERSIONS_H
+#endif  // TESSERACT_THREEPP_CONVERSIONS_H

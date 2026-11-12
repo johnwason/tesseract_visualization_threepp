@@ -10,6 +10,7 @@
   <build_depend>ros_industrial_cmake_boilerplate</build_depend>
   <!-- threepp has no rosdep key. colcon.pkg orders the build after it. -->
   <depend>tesseract</depend>
+  <depend>tesseract_threepp</depend>
   <test_depend>gtest</test_depend>
 
   <export>
