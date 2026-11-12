@@ -16,6 +16,7 @@ Only the Python standard library is used.
 import argparse
 import itertools
 import json
+import math
 import pathlib
 import struct
 import sys
@@ -45,7 +46,7 @@ NONCOMMERCIAL = {"DamagedHelmet"}
 
 # glTF is +Y up and faces +Z; tesseract is +Z up. This rpy maps glTF y->Z, z->X and x->Y, so the models face +X,
 # toward the viewers' default camera.
-RPY = "1.5708 0 1.5708"
+RPY = (math.pi / 2, 0.0, math.pi / 2)
 
 
 def download(name, path):
@@ -86,9 +87,8 @@ def multiply(a, b):
     return [[sum(a[r][k] * b[k][c] for k in range(4)) for c in range(4)] for r in range(4)]
 
 
-def bounds(path):
-    """The axis aligned bounds of the default scene, with node transforms applied"""
-    doc = read_gltf_json(path)
+def bounds(doc):
+    """The axis aligned bounds of the default scene, with every node transform applied"""
     lo, hi = [float("inf")] * 3, [float("-inf")] * 3
 
     def walk(index, parent):
@@ -104,25 +104,83 @@ def bounds(path):
         for child in node.get("children", []):
             walk(child, m)
 
-    identity = [[float(r == c) for c in range(4)] for r in range(4)]
-    for root in doc["scenes"][doc.get("scene", 0)]["nodes"]:
-        walk(root, identity)
+    for root in scene_roots(doc):
+        walk(root, IDENTITY)
     return lo, hi
+
+
+def scene_roots(doc):
+    return doc["scenes"][doc.get("scene", 0)]["nodes"]
+
+
+def dropped_root_transform(doc, name):
+    """The transform tesseract leaves out, as a uniform scale, a rotation and a translation.
+
+    tesseract resets the transform of assimp's root node, as RViz does, to undo assimp's conversion of Z-up formats to
+    Y-up. When a glTF scene has a single root node, assimp makes that node its root, so that node's transform is
+    dropped. The URDF puts it back.
+    """
+    roots = scene_roots(doc)
+    if len(roots) != 1:
+        return 1.0, IDENTITY3, [0.0, 0.0, 0.0]
+    m = node_matrix(doc["nodes"][roots[0]])
+    columns = [[m[r][c] for r in range(3)] for c in range(3)]
+    scales = [math.sqrt(sum(v * v for v in col)) for col in columns]
+    rot = [[m[r][c] / scales[c] for c in range(3)] for r in range(3)]
+    if max(scales) - min(scales) > 1e-6 * max(scales) or abs(det3(rot) - 1) > 1e-6:
+        raise RuntimeError(f"{name}: the root node transform has a non-uniform scale or a reflection")
+    return scales[0], rot, [m[r][3] for r in range(3)]
+
+
+def det3(a):
+    return (a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+            + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]))
+
+
+def rpy_to_matrix(roll, pitch, yaw):
+    """URDF convention: R = Rz(yaw) Ry(pitch) Rx(roll)"""
+    cr, sr, cp, sp, cy, sy = (math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch), math.cos(yaw),
+                              math.sin(yaw))
+    return [[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr]]
+
+
+def matrix_to_rpy(r):
+    return (math.atan2(r[2][1], r[2][2]), math.asin(max(-1.0, min(1.0, -r[2][0]))), math.atan2(r[1][0], r[0][0]))
+
+
+def mul3(a, b):
+    return [[sum(a[r][k] * b[k][c] for k in range(3)) for c in range(3)] for r in range(3)]
+
+
+IDENTITY = [[float(r == c) for c in range(4)] for r in range(4)]
+IDENTITY3 = [[float(r == c) for c in range(3)] for r in range(3)]
 
 
 def xml_escape(text):
     return quoteattr(text)[1:-1]
 
 
-def visual(path, size, by_width):
-    lo, hi = bounds(path)
+def visual(path, name, size, by_width):
+    doc = read_gltf_json(path)
+    lo, hi = bounds(doc)
     extent = (hi[0] - lo[0]) if by_width else (hi[1] - lo[1])
     s = size / extent
     c = [(a + b) / 2 for a, b in zip(lo, hi)]
-    # A mesh point p lands at R (s p) + xyz. Center x and z on the joint and put the bottom on the floor.
-    xyz = (-c[2] * s, -c[0] * s, -lo[1] * s)
-    return (f'<visual><origin xyz="{xyz[0]:.5f} {xyz[1]:.5f} {xyz[2]:.5f}" rpy="{RPY}"/>'
-            f'<geometry><mesh filename="{xml_escape(str(path))}" scale="{s:.6f} {s:.6f} {s:.6f}"/></geometry></visual>')
+    # A model point q, with every node transform applied, should land at B (s q) + xyz, where B is the RPY rotation.
+    # That centers x and z on the joint and puts the bottom on the floor.
+    xyz = [-c[2] * s, -c[0] * s, -lo[1] * s]
+    # tesseract loads p, with q = k R p + t, where k, R and t are the dropped root transform. So the URDF gets the
+    # rotation B R, the mesh scale s k, and the origin xyz + s B t.
+    base = rpy_to_matrix(*RPY)
+    k, rot, t = dropped_root_transform(doc, name)
+    rpy = matrix_to_rpy(mul3(base, rot))
+    xyz = [xyz[r] + s * sum(base[r][j] * t[j] for j in range(3)) for r in range(3)]
+    ms = s * k
+    return (f'<visual><origin xyz="{xyz[0]:.5f} {xyz[1]:.5f} {xyz[2]:.5f}" '
+            f'rpy="{rpy[0]:.6f} {rpy[1]:.6f} {rpy[2]:.6f}"/>'
+            f'<geometry><mesh filename="{xml_escape(str(path))}" scale="{ms:.6f} {ms:.6f} {ms:.6f}"/></geometry></visual>')
 
 
 def write_urdf(out_dir, turntable, boards):
@@ -130,12 +188,12 @@ def write_urdf(out_dir, turntable, boards):
              '  <link name="world"/>']
     for i, (name, _, _, size) in enumerate(turntable):
         y = (i - (len(turntable) - 1) / 2) * 1.1
-        lines.append(f'  <link name="{name}">{visual(out_dir / f"{name}.glb", size, False)}</link>')
+        lines.append(f'  <link name="{name}">{visual(out_dir / f"{name}.glb", name, size, False)}</link>')
         lines.append(f'  <joint name="{name}_turntable" type="continuous"><parent link="world"/><child link="{name}"/>'
                      f'<origin xyz="0 {y:.3f} 0"/><axis xyz="0 0 1"/></joint>')
     for i, (name, _, _, size) in enumerate(boards):
         y = (i - (len(boards) - 1) / 2) * 2.8
-        lines.append(f'  <link name="{name}">{visual(out_dir / f"{name}.glb", size, True)}</link>')
+        lines.append(f'  <link name="{name}">{visual(out_dir / f"{name}.glb", name, size, True)}</link>')
         lines.append(f'  <joint name="{name}_joint" type="fixed"><parent link="world"/><child link="{name}"/>'
                      f'<origin xyz="-2.5 {y:.3f} 0"/></joint>')
     lines.append("</robot>")
