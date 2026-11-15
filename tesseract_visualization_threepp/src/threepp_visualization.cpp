@@ -17,6 +17,8 @@
 #include <utility>
 
 #include <threepp/canvas/EglContext.hpp>
+#include <threepp/extras/environments/RoomEnvironment.hpp>
+#include <threepp/renderers/gl/PMREMGenerator.hpp>
 #include <threepp/threepp.hpp>
 
 #include <tesseract/common/joint_state.h>
@@ -64,7 +66,17 @@ public:
 
     scene_ = tp::Scene::create();
     // Matches the brightness of the three.js client, whose r153 lights are not physically scaled
-    scene_->add(tp::HemisphereLight::create(0xffffff, 0x202018, 2 * PI_2));
+    float hemisphere_intensity = 2 * PI_2;
+    if (options.lighting == ThreeppLighting::ENVIRONMENT)
+    {
+      // As the three.js client with ?lighting=environment: RoomEnvironment, and half the hemisphere light
+      tp::PMREMGenerator pmrem(*gl_);
+      auto room = tp::RoomEnvironment::create();
+      scene_->environment = pmrem.fromScene(*room, 0.04F);
+      room->dispose();
+      hemisphere_intensity *= 0.5F;
+    }
+    scene_->add(tp::HemisphereLight::create(0xffffff, 0x202018, hemisphere_intensity));
 
     // tesseract is Z up, three.js and threepp are Y up
     z_up_ = tp::Group::create();
@@ -284,6 +296,15 @@ ThreeppDisplayMode ThreeppVisualizationOptions::parseMode(const std::string& tex
   throw std::invalid_argument("Invalid threepp display mode, expected auto, window or headless: " + text);
 }
 
+ThreeppLighting ThreeppVisualizationOptions::parseLighting(const std::string& text)
+{
+  if (text == "hemisphere")
+    return ThreeppLighting::HEMISPHERE;
+  if (text == "environment")
+    return ThreeppLighting::ENVIRONMENT;
+  throw std::invalid_argument("Invalid threepp lighting, expected hemisphere or environment: " + text);
+}
+
 ThreeppVisualizationOptions ThreeppVisualizationOptions::fromEnvironment()
 {
   ThreeppVisualizationOptions options;
@@ -293,6 +314,8 @@ ThreeppVisualizationOptions ThreeppVisualizationOptions::fromEnvironment()
     options.width = parseSize("TESSERACT_VISUALIZATION_THREEPP_WIDTH", width);
   if (const char* height = std::getenv("TESSERACT_VISUALIZATION_THREEPP_HEIGHT"))
     options.height = parseSize("TESSERACT_VISUALIZATION_THREEPP_HEIGHT", height);
+  if (const char* lighting = std::getenv("TESSERACT_VISUALIZATION_THREEPP_LIGHTING"))
+    options.lighting = parseLighting(lighting);
   return options;
 }
 

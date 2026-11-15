@@ -2,7 +2,10 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <map>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include <threepp/threepp.hpp>
@@ -87,6 +90,46 @@ std::shared_ptr<tp::BufferGeometry> primitiveGeometry(const g::Geometry& geometr
   return nullptr;
 }
 
+tp::TextureWrapping toWrapping(g::MeshTextureWrapMode mode)
+{
+  switch (mode)
+  {
+    case g::MeshTextureWrapMode::CLAMP_TO_EDGE:
+      return tp::TextureWrapping::ClampToEdge;
+    case g::MeshTextureWrapMode::MIRRORED_REPEAT:
+      return tp::TextureWrapping::MirroredRepeat;
+    default:
+      return tp::TextureWrapping::Repeat;
+  }
+}
+
+/** @brief The threepp filter, or nothing to keep threepp's default */
+std::optional<tp::Filter> toFilter(g::MeshTextureFilter filter)
+{
+  switch (filter)
+  {
+    case g::MeshTextureFilter::NEAREST:
+      return tp::Filter::Nearest;
+    case g::MeshTextureFilter::LINEAR:
+      return tp::Filter::Linear;
+    case g::MeshTextureFilter::NEAREST_MIPMAP_NEAREST:
+      return tp::Filter::NearestMipmapNearest;
+    case g::MeshTextureFilter::LINEAR_MIPMAP_NEAREST:
+      return tp::Filter::LinearMipmapNearest;
+    case g::MeshTextureFilter::NEAREST_MIPMAP_LINEAR:
+      return tp::Filter::NearestMipmapLinear;
+    case g::MeshTextureFilter::LINEAR_MIPMAP_LINEAR:
+      return tp::Filter::LinearMipmapLinear;
+    default:
+      return std::nullopt;
+  }
+}
+
+/** @brief The geometry attribute threepp samples for a UV set: "uv", "uv2" and "uv3" (Texture::channel 0, 1, 2) */
+std::string uvAttributeName(int channel) { return channel == 0 ? "uv" : "uv" + std::to_string(channel + 1); }
+
+constexpr int MAX_UV_SETS = 3;
+
 /** @brief The mesh's own material, or null if it has none that can be trusted */
 std::shared_ptr<tp::Material> meshMaterial(const g::PolygonMesh& mesh, tp::BufferGeometry& geometry)
 {
@@ -98,29 +141,108 @@ std::shared_ptr<tp::Material> meshMaterial(const g::PolygonMesh& mesh, tp::Buffe
   auto material = tp::MeshStandardMaterial::create();
   const Eigen::Vector4d color = source->getBaseColorFactor();
   material->color = toColor(color);
-  material->opacity = static_cast<float>(color[3]);
-  material->alphaTest = ALPHA_CUTOFF;
   material->roughness = static_cast<float>(source->getRoughnessFactor());
   material->metalness = static_cast<float>(source->getMetallicFactor());
+  material->emissive = toColor(source->getEmissiveFactor());
+  material->emissiveIntensity = static_cast<float>(source->getEmissiveStrength());
+  material->side = source->getDoubleSided() ? tp::Side::Double : tp::Side::Front;
 
-  if (const auto& textures = mesh.getTextures(); textures != nullptr && !textures->empty())
+  // glTF 2.0 alpha modes, as three.js's GLTFLoader maps them
+  switch (source->getAlphaMode())
   {
-    const auto& texture = textures->front();
+    case g::MeshMaterialAlphaMode::BLEND:
+      material->opacity = static_cast<float>(color[3]);
+      material->transparent = true;
+      material->depthWrite = false;
+      break;
+    case g::MeshMaterialAlphaMode::MASK:
+      material->opacity = static_cast<float>(color[3]);
+      material->alphaTest = static_cast<float>(source->getAlphaCutoff());
+      break;
+    default:
+      material->opacity = 1.0F;
+      break;
+  }
+
+  const auto& textures = mesh.getTextures();
+  if (textures == nullptr || textures->empty())
+    return material;
+
+  // Each UV channel of the source mesh used by a texture becomes one threepp UV set, in order of use
+  std::map<unsigned, int> uv_sets;
+  // Textures that share an image and UV set, as the metallic and roughness maps always do, share one decoded texture
+  std::map<std::pair<const tesseract::common::Resource*, int>, std::shared_ptr<tp::Texture>> decoded;
+  tp::TextureLoader loader(false);
+
+  for (const auto& texture : *textures)
+  {
     const auto image = texture->getTextureImage();
-    tp::TextureLoader loader(false);
-    material->map = loader.loadFromMemory(image->getUrl(), image->getResourceContents(), tp::ColorSpace::sRGB);
-    if (material->map == nullptr)
+    const auto& uvs = texture->getUVs();
+    if (image == nullptr || uvs == nullptr || uvs->size() != mesh.getVertices()->size())
+      continue;
+
+    auto set = uv_sets.find(texture->getUVChannel());
+    if (set == uv_sets.end())
     {
-      TESSERACT_LOG_WARN("tesseract_visualization_threepp: could not decode texture {}", image->getUrl());
-    }
-    else
-    {
-      const auto& uvs = *texture->getUVs();
+      if (static_cast<int>(uv_sets.size()) >= MAX_UV_SETS)
+      {
+        TESSERACT_LOG_WARN("tesseract_visualization_threepp: texture {} needs more than {} UV sets and was skipped", image->getUrl(), MAX_UV_SETS);
+        continue;
+      }
+      const int channel = static_cast<int>(uv_sets.size());
       std::vector<float> flat;
-      flat.reserve(uvs.size() * 2);
-      for (const auto& uv : uvs)
+      flat.reserve(uvs->size() * 2);
+      for (const auto& uv : *uvs)
         flat.insert(flat.end(), { static_cast<float>(uv.x()), static_cast<float>(uv.y()) });
-      geometry.setAttribute("uv", tp::FloatBufferAttribute::create(std::move(flat), 2));
+      geometry.setAttribute(uvAttributeName(channel), tp::FloatBufferAttribute::create(std::move(flat), 2));
+      set = uv_sets.emplace(texture->getUVChannel(), channel).first;
+    }
+
+    // Color textures are sRGB; data textures (metallic-roughness, normal, occlusion) are linear
+    const bool is_color = texture->getType() == g::MeshTextureType::BASE_COLOR || texture->getType() == g::MeshTextureType::EMISSIVE;
+    auto& map = decoded[{ image.get(), set->second }];
+    if (map == nullptr)
+    {
+      map = loader.loadFromMemory(image->getUrl(), image->getResourceContents(), is_color ? tp::ColorSpace::sRGB : tp::ColorSpace::NoColorSpace);
+      if (map == nullptr)
+      {
+        TESSERACT_LOG_WARN("tesseract_visualization_threepp: could not decode texture {}", image->getUrl());
+        continue;
+      }
+      map->wrapS = toWrapping(texture->getWrapU());
+      map->wrapT = toWrapping(texture->getWrapV());
+      if (auto filter = toFilter(texture->getMagFilter()))
+        map->magFilter = *filter;
+      if (auto filter = toFilter(texture->getMinFilter()))
+        map->minFilter = *filter;
+      map->channel = set->second;
+      map->needsUpdate();
+    }
+
+    switch (texture->getType())
+    {
+      case g::MeshTextureType::BASE_COLOR:
+        material->map = map;
+        break;
+      case g::MeshTextureType::METALLIC_ROUGHNESS:
+        // glTF packs roughness in green and metalness in blue, as threepp samples them
+        material->metalnessMap = map;
+        material->roughnessMap = map;
+        break;
+      case g::MeshTextureType::NORMAL:
+      {
+        material->normalMap = map;
+        const auto scale = static_cast<float>(source->getNormalScale());
+        material->normalScale = tp::Vector2(scale, scale);
+        break;
+      }
+      case g::MeshTextureType::OCCLUSION:
+        material->aoMap = map;
+        material->aoMapIntensity = static_cast<float>(source->getOcclusionStrength());
+        break;
+      case g::MeshTextureType::EMISSIVE:
+        material->emissiveMap = map;
+        break;
     }
   }
   return material;

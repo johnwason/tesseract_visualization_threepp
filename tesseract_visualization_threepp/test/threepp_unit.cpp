@@ -217,6 +217,33 @@ TEST(ThreeppVisualization, InvalidModeIsRejected)
   EXPECT_EQ(ThreeppVisualizationOptions::parseMode("headless"), ThreeppDisplayMode::HEADLESS);
 }
 
+TEST(ThreeppVisualization, LightingOptionIsParsed)
+{
+  EXPECT_THROW(ThreeppVisualizationOptions::parseLighting("disco"), std::invalid_argument);
+  EXPECT_EQ(ThreeppVisualizationOptions::parseLighting("hemisphere"), ThreeppLighting::HEMISPHERE);
+  EXPECT_EQ(ThreeppVisualizationOptions::parseLighting("environment"), ThreeppLighting::ENVIRONMENT);
+  EXPECT_EQ(ThreeppVisualizationOptions{}.lighting, ThreeppLighting::HEMISPHERE);
+}
+
+TEST(ThreeppVisualization, EnvironmentLightingChangesTheImage)
+{
+  // The red link's material is partly metallic, so the environment map changes how it shades
+  const auto render = [](ThreeppLighting lighting) {
+    ThreeppVisualizationOptions options = headless();
+    options.lighting = lighting;
+    ThreeppVisualization viewer(options);
+    auto env = makeEnvironment();
+    viewer.plotEnvironment(*env);
+    return viewer.renderImage();
+  };
+  const auto hemisphere = render(ThreeppLighting::HEMISPHERE);
+  const auto environment = render(ThreeppLighting::ENVIRONMENT);
+  ASSERT_TRUE(hemisphere.has_value());
+  ASSERT_TRUE(environment.has_value());
+  EXPECT_GT(redPixels(*environment), 200);
+  EXPECT_NE(hemisphere->rgba, environment->rgba);
+}
+
 TEST(ThreeppVisualization, TheLoaderProvidesAPluginInstance)
 {
   setenv("TESSERACT_VISUALIZATION_THREEPP_MODE", "headless", 1);
