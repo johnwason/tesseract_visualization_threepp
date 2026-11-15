@@ -26,9 +26,9 @@
 #include <tesseract/visualization/markers/geometry_marker.h>
 #include <tesseract/visualization/markers/marker.h>
 #include <tesseract/visualization/markers/toolpath_marker.h>
-#include <tesseract/visualization/threepp/conversions.h>
+#include <tesseract/threepp/conversions.h>
 
-namespace tesseract::visualization::threepp
+namespace tesseract::threepp
 {
 namespace
 {
@@ -186,7 +186,7 @@ std::shared_ptr<tp::Material> meshMaterial(const g::PolygonMesh& mesh, tp::Buffe
     {
       if (static_cast<int>(uv_sets.size()) >= MAX_UV_SETS)
       {
-        TESSERACT_LOG_WARN("tesseract_visualization_threepp: texture {} needs more than {} UV sets and was skipped", image->getUrl(), MAX_UV_SETS);
+        TESSERACT_LOG_WARN("tesseract_threepp: texture {} needs more than {} UV sets and was skipped", image->getUrl(), MAX_UV_SETS);
         continue;
       }
       const int channel = static_cast<int>(uv_sets.size());
@@ -206,7 +206,7 @@ std::shared_ptr<tp::Material> meshMaterial(const g::PolygonMesh& mesh, tp::Buffe
       map = loader.loadFromMemory(image->getUrl(), image->getResourceContents(), is_color ? tp::ColorSpace::sRGB : tp::ColorSpace::NoColorSpace);
       if (map == nullptr)
       {
-        TESSERACT_LOG_WARN("tesseract_visualization_threepp: could not decode texture {}", image->getUrl());
+        TESSERACT_LOG_WARN("tesseract_threepp: could not decode texture {}", image->getUrl());
         continue;
       }
       map->wrapS = toWrapping(texture->getWrapU());
@@ -492,7 +492,7 @@ std::vector<std::shared_ptr<tp::Mesh>> geometryToMeshes(const g::Geometry& geome
   if (auto primitive = primitiveGeometry(geometry))
     return { tp::Mesh::create(primitive, material) };
 
-  TESSERACT_LOG_WARN("tesseract_visualization_threepp: skipping geometry of unsupported type {}", static_cast<int>(geometry.getType()));
+  TESSERACT_LOG_WARN("tesseract_threepp: skipping geometry of unsupported type {}", static_cast<int>(geometry.getType()));
   return {};
 }
 
@@ -530,7 +530,7 @@ std::vector<MarkerObject> markerToObjects(const vis::Marker& marker, const std::
       appendContactResults(out, dynamic_cast<const vis::ContactResultsMarker&>(marker), parent);
       break;
     default:
-      TESSERACT_LOG_WARN("tesseract_visualization_threepp: marker type {} cannot be shown", marker.getType());
+      TESSERACT_LOG_WARN("tesseract_threepp: marker type {} cannot be shown", marker.getType());
       break;
   }
   return out;
@@ -577,4 +577,4 @@ JointValueTrajectory toJointValueTrajectory(const tesseract::common::JointTrajec
   return out;
 }
 
-}  // namespace tesseract::visualization::threepp
+}  // namespace tesseract::threepp

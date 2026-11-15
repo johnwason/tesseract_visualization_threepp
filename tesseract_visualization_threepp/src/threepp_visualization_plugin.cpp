@@ -4,7 +4,7 @@
  *
  * Load it by setting
  *   TESSERACT_VISUALIZATION_PLUGIN_DIRECTORIES=<prefix>/lib
- *   TESSERACT_VISUALIZATION_PLUGINS=tesseract_visualization_threepp_plugin
+ *   TESSERACT_VISUALIZATION_PLUGINS=tesseract_visualization_threepp_factories
  */
 #include <memory>
 #include <string>

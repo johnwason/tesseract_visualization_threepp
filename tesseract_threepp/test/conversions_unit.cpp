@@ -21,9 +21,9 @@
 #include <tesseract/visualization/markers/axis_marker.h>
 #include <tesseract/visualization/markers/contact_results_marker.h>
 #include <tesseract/visualization/markers/geometry_marker.h>
-#include <tesseract/visualization/threepp/conversions.h>
+#include <tesseract/threepp/conversions.h>
 
-using namespace tesseract::visualization::threepp;
+using namespace tesseract::threepp;
 namespace g = tesseract::geometry;
 
 namespace
