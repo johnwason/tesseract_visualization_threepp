@@ -38,6 +38,7 @@ order decides which loads.
 | `TESSERACT_VISUALIZATION_THREEPP_MODE` | `mode` | `auto` | `window`, `headless`, or `auto`: a window if `DISPLAY` is set |
 | `TESSERACT_VISUALIZATION_THREEPP_WIDTH` | `width` | 1280 | Pixels |
 | `TESSERACT_VISUALIZATION_THREEPP_HEIGHT` | `height` | 720 | Pixels |
+| `TESSERACT_VISUALIZATION_THREEPP_LIGHTING` | `lighting` | `hemisphere` | `hemisphere`, or `environment` to add an environment map for PBR materials, like the three.js client's `?lighting=environment` |
 
 A window has orbit controls and plays trajectories in a loop. Headless, use `ThreeppVisualization` directly:
 `renderImage()` returns the pixels, `saveImage(path)` writes a file, and `seekTrajectory(time)` picks the frame.
@@ -46,6 +47,22 @@ A window has orbit controls and plays trajectories in a loop. Headless, use `Thr
 
 `tesseract::threepp::TesseractScene` holds the environment, joint state, markers and trajectory playback as one threepp
 scene. Render `scene()` with any threepp renderer and camera. `conversions.h` has the pieces it is built from.
+
+## Examples
+
+| Program | Shows |
+| --- | --- |
+| `tesseract_visualization_threepp_abb_irb2400_viewer [image.png]` | A robot and an animated trajectory |
+| `tesseract_visualization_threepp_pbr_models_viewer <models dir> [image.png]` | glTF sample models using every PBR texture slot, and alpha, emissive and normal map test boards, with environment lighting |
+
+With an image path, an example renders one frame headlessly to it instead of opening a window.
+
+The PBR models example needs models from the Khronos [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets), which are not part of this repository. [examples/download_pbr_models.py](tesseract_visualization_threepp/examples/download_pbr_models.py) downloads them at a pinned commit, using only the Python standard library, and writes the scene URDF and an `ATTRIBUTION.md` with each model's license (CC0 or CC-BY). `--include-noncommercial` adds DamagedHelmet, which is partly CC-BY-NC.
+
+```bash
+python3 tesseract_visualization_threepp/examples/download_pbr_models.py pbr_models
+tesseract_visualization_threepp_pbr_models_viewer pbr_models
+```
 
 ## Limitations
 

@@ -40,9 +40,12 @@ target_link_libraries(tesseract_visualization_threepp_factories PRIVATE tesserac
 add_executable(tesseract_visualization_threepp_abb_irb2400_viewer examples/abb_irb2400_viewer.cpp)
 target_link_libraries(tesseract_visualization_threepp_abb_irb2400_viewer PRIVATE tesseract_visualization_threepp)
 
+add_executable(tesseract_visualization_threepp_pbr_models_viewer examples/pbr_models_viewer.cpp)
+target_link_libraries(tesseract_visualization_threepp_pbr_models_viewer PRIVATE tesseract_visualization_threepp)
+
 configure_package(NAMESPACE tesseract
                   TARGETS tesseract_visualization_threepp tesseract_visualization_threepp_factories
-                          tesseract_visualization_threepp_abb_irb2400_viewer
+                          tesseract_visualization_threepp_abb_irb2400_viewer tesseract_visualization_threepp_pbr_models_viewer
                   DEPENDENCIES tesseract_threepp
                   "tesseract COMPONENTS common geometry scene_graph state_solver collision kinematics environment visualization")
 install(DIRECTORY include/ DESTINATION include FILES_MATCHING PATTERN "*.h")

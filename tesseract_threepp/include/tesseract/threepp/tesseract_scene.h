@@ -13,8 +13,10 @@
 #include <string>
 #include <vector>
 
+#include <threepp/lights/HemisphereLight.hpp>
 #include <threepp/objects/Group.hpp>
 #include <threepp/scenes/Scene.hpp>
+#include <threepp/textures/Texture.hpp>
 
 #include <tesseract/threepp/conversions.h>
 
@@ -61,6 +63,13 @@ public:
   /** @brief Remove the markers of a namespace, or all of them if ns is empty */
   void clearMarkers(const std::string& ns);
 
+  /**
+   * @brief Light PBR materials with an environment map, or stop if it is null
+   * @details The map is made with a renderer, for example by tp::PMREMGenerator from a tp::RoomEnvironment. While it
+   * is set, the hemisphere light is at half intensity, as in the three.js client with ?lighting=environment.
+   */
+  void setEnvironmentMap(std::shared_ptr<tp::Texture> map);
+
 private:
   struct MarkerEntry
   {
@@ -73,6 +82,7 @@ private:
 
   std::shared_ptr<tp::Scene> scene_;
   std::shared_ptr<tp::Group> z_up_;
+  std::shared_ptr<tp::HemisphereLight> hemisphere_;
   EnvironmentScene environment_;
   std::vector<MarkerEntry> markers_;
 

@@ -68,6 +68,15 @@ constexpr char TEXTURED[] = R"(
   <joint name="j" type="fixed"><parent link="base"/><child link="mesh"/></joint>
 </robot>)";
 
+constexpr char PBR[] = R"(
+<robot name="pbr" tesseract:make_convex="false" xmlns:tesseract="http://tesseract">
+  <link name="base"/>
+  <link name="mesh">
+    <visual><geometry><mesh filename="package://tesseract/support/meshes/tesseract_pbr_mesh.glb"/></geometry></visual>
+  </link>
+  <joint name="j" type="fixed"><parent link="base"/><child link="mesh"/></joint>
+</robot>)";
+
 std::unique_ptr<tesseract::environment::Environment> makeEnvironment(const char* urdf)
 {
   auto env = std::make_unique<tesseract::environment::Environment>();
@@ -189,6 +198,66 @@ TEST(Conversions, TexturedMeshKeepsItsTexture)
     }
   });
   EXPECT_GT(textured, 0);
+}
+
+TEST(Conversions, PbrMaterialMapsEveryTextureSlot)
+{
+  const auto env = makeEnvironment(PBR);
+  const EnvironmentScene scene = environmentToScene(*env);
+  std::shared_ptr<tp::MeshStandardMaterial> full;
+  std::shared_ptr<tp::MeshStandardMaterial> mask;
+  std::shared_ptr<tp::BufferGeometry> full_geometry;
+  scene.root->traverseType<tp::Mesh>([&](tp::Mesh& mesh) {
+    auto material = std::dynamic_pointer_cast<tp::MeshStandardMaterial>(mesh.material());
+    if (material == nullptr)
+      return;
+    if (material->normalMap != nullptr)
+    {
+      full = material;
+      full_geometry = mesh.geometry();
+    }
+    else if (material->alphaTest > 0)
+    {
+      mask = material;
+    }
+  });
+  ASSERT_NE(full, nullptr);
+  ASSERT_NE(mask, nullptr);
+
+  EXPECT_NEAR(full->metalness, 0.75F, 1e-5F);
+  EXPECT_NEAR(full->roughness, 0.25F, 1e-5F);
+  EXPECT_NEAR(full->opacity, 0.6F, 1e-5F);
+  EXPECT_TRUE(full->transparent);
+  EXPECT_FALSE(full->depthWrite);
+  EXPECT_EQ(full->side, tp::Side::Double);
+  EXPECT_NEAR(full->emissive.g, 0.5F, 1e-5F);
+  EXPECT_NEAR(full->emissiveIntensity, 2.5F, 1e-5F);
+  EXPECT_NEAR(full->normalScale.x, 0.5F, 1e-5F);
+  EXPECT_NEAR(full->aoMapIntensity, 0.8F, 1e-5F);
+
+  ASSERT_NE(full->map, nullptr);
+  ASSERT_NE(full->metalnessMap, nullptr);
+  ASSERT_NE(full->aoMap, nullptr);
+  ASSERT_NE(full->emissiveMap, nullptr);
+  EXPECT_EQ(full->metalnessMap, full->roughnessMap);
+  EXPECT_EQ(full->map->colorSpace, tp::ColorSpace::sRGB);
+  EXPECT_EQ(full->emissiveMap->colorSpace, tp::ColorSpace::sRGB);
+  EXPECT_NE(full->normalMap->colorSpace, tp::ColorSpace::sRGB);
+  EXPECT_NE(full->metalnessMap->colorSpace, tp::ColorSpace::sRGB);
+
+  // Occlusion uses the second UV set; the base color sampler clamps and mirrors with nearest filtering
+  EXPECT_EQ(full->map->channel, 0);
+  EXPECT_EQ(full->aoMap->channel, 1);
+  EXPECT_TRUE(full_geometry->hasAttribute("uv"));
+  EXPECT_TRUE(full_geometry->hasAttribute("uv2"));
+  EXPECT_EQ(full->map->wrapS, tp::TextureWrapping::ClampToEdge);
+  EXPECT_EQ(full->map->wrapT, tp::TextureWrapping::MirroredRepeat);
+  EXPECT_EQ(full->map->magFilter, tp::Filter::Nearest);
+  EXPECT_EQ(full->normalMap->wrapS, tp::TextureWrapping::Repeat);
+
+  EXPECT_NEAR(mask->alphaTest, 0.3F, 1e-5F);
+  EXPECT_FALSE(mask->transparent);
+  EXPECT_EQ(mask->side, tp::Side::Front);
 }
 
 TEST(Conversions, MarkersGoToTheirLinkOrTheDefault)

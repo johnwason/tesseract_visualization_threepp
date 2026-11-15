@@ -141,3 +141,25 @@ TEST(TesseractScene, TrajectoryContinuesAcrossEnvironments)
   scene.setEnvironment(makeScene(URDF), { { "slide", 0.0 } });
   EXPECT_FLOAT_EQ(slidePosition(scene), 1.0F);
 }
+
+TEST(TesseractScene, EnvironmentMapHalvesTheHemisphereLight)
+{
+  TesseractScene scene;
+  const auto hemisphere = [&] {
+    tp::HemisphereLight* light = nullptr;
+    scene.scene().traverseType<tp::HemisphereLight>([&](tp::HemisphereLight& l) { light = &l; });
+    return light;
+  };
+  ASSERT_NE(hemisphere(), nullptr);
+  const float full = hemisphere()->intensity;
+  EXPECT_EQ(scene.scene().environment, nullptr);
+
+  auto map = tp::Texture::create();
+  scene.setEnvironmentMap(map);
+  EXPECT_EQ(scene.scene().environment, map);
+  EXPECT_FLOAT_EQ(hemisphere()->intensity, 0.5F * full);
+
+  scene.setEnvironmentMap(nullptr);
+  EXPECT_EQ(scene.scene().environment, nullptr);
+  EXPECT_FLOAT_EQ(hemisphere()->intensity, full);
+}

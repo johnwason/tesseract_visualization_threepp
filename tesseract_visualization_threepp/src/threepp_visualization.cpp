@@ -17,6 +17,8 @@
 #include <utility>
 
 #include <threepp/canvas/EglContext.hpp>
+#include <threepp/extras/environments/RoomEnvironment.hpp>
+#include <threepp/renderers/gl/PMREMGenerator.hpp>
 #include <threepp/threepp.hpp>
 
 #include <tesseract/common/joint_state.h>
@@ -64,6 +66,15 @@ public:
       gl_ = std::make_unique<tp::GLRenderer>(*canvas_);
     }
     gl_->setClearColor(tp::Color(0x000000));
+
+    if (options.lighting == ThreeppLighting::ENVIRONMENT)
+    {
+      // As the three.js client with ?lighting=environment
+      tp::PMREMGenerator pmrem(*gl_);
+      auto room = tp::RoomEnvironment::create();
+      scene_.setEnvironmentMap(pmrem.fromScene(*room, 0.04F));
+      room->dispose();
+    }
 
     camera_ = tp::PerspectiveCamera::create(45, static_cast<float>(options.width) / static_cast<float>(options.height), 0.1F, 1000);
     camera_->position.set(3, 3, -1.5F);
@@ -190,6 +201,15 @@ ThreeppDisplayMode ThreeppVisualizationOptions::parseMode(const std::string& tex
   throw std::invalid_argument("Invalid threepp display mode, expected auto, window or headless: " + text);
 }
 
+ThreeppLighting ThreeppVisualizationOptions::parseLighting(const std::string& text)
+{
+  if (text == "hemisphere")
+    return ThreeppLighting::HEMISPHERE;
+  if (text == "environment")
+    return ThreeppLighting::ENVIRONMENT;
+  throw std::invalid_argument("Invalid threepp lighting, expected hemisphere or environment: " + text);
+}
+
 ThreeppVisualizationOptions ThreeppVisualizationOptions::fromEnvironment()
 {
   ThreeppVisualizationOptions options;
@@ -199,6 +219,8 @@ ThreeppVisualizationOptions ThreeppVisualizationOptions::fromEnvironment()
     options.width = parseSize("TESSERACT_VISUALIZATION_THREEPP_WIDTH", width);
   if (const char* height = std::getenv("TESSERACT_VISUALIZATION_THREEPP_HEIGHT"))
     options.height = parseSize("TESSERACT_VISUALIZATION_THREEPP_HEIGHT", height);
+  if (const char* lighting = std::getenv("TESSERACT_VISUALIZATION_THREEPP_LIGHTING"))
+    options.lighting = parseLighting(lighting);
   return options;
 }
 

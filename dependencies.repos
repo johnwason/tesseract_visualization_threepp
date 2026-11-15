@@ -12,8 +12,8 @@
     version: 0.5.5
 - git:
     local-name: tesseract
-    uri: https://github.com/johnwason/tesseract.git
-    version: 456c8b3cd162d806ad5088f14dcd5e5a8f8a3465
+    uri: https://github.com/tesseract-robotics/tesseract.git
+    version: b71a3ad6008aa7fc6d3403217c319d43d222f22c
 - git:
     local-name: threepp
     uri: https://github.com/markaren/threepp.git

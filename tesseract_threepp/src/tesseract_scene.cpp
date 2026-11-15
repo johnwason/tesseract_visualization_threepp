@@ -19,10 +19,18 @@ void detach(const MarkerObject& marker)
 }
 }  // namespace
 
-TesseractScene::TesseractScene(const TesseractSceneOptions& options) : scene_(tp::Scene::create()), z_up_(tp::Group::create())
+namespace
 {
-  // Matches the brightness of the three.js client, whose r153 lights are not physically scaled
-  scene_->add(tp::HemisphereLight::create(0xffffff, 0x202018, 2 * PI_2));
+// Matches the brightness of the three.js client, whose r153 lights are not physically scaled
+constexpr float HEMISPHERE_INTENSITY = 2 * PI_2;
+}  // namespace
+
+TesseractScene::TesseractScene(const TesseractSceneOptions& options)
+  : scene_(tp::Scene::create())
+  , z_up_(tp::Group::create())
+  , hemisphere_(tp::HemisphereLight::create(0xffffff, 0x202018, HEMISPHERE_INTENSITY))
+{
+  scene_->add(hemisphere_);
 
   // tesseract is Z up, three.js and threepp are Y up
   z_up_->rotateX(-PI_2);
@@ -31,6 +39,12 @@ TesseractScene::TesseractScene(const TesseractSceneOptions& options) : scene_(tp
   // The grid is flat in threepp's Y up frame, so it goes in the scene rather than under z_up_
   if (options.ground_grid)
     scene_->add(tp::GridHelper::create(10, 20, 0x888888, 0x444444));
+}
+
+void TesseractScene::setEnvironmentMap(std::shared_ptr<tp::Texture> map)
+{
+  hemisphere_->intensity = map != nullptr ? 0.5F * HEMISPHERE_INTENSITY : HEMISPHERE_INTENSITY;
+  scene_->environment = std::move(map);
 }
 
 void TesseractScene::setEnvironment(EnvironmentScene environment, const JointValues& values)
